@@ -8,12 +8,32 @@ pub mod websocket_source;
 
 pub use chain_data::SlotStatus;
 
+use lazy_static::lazy_static;
+use prometheus::{
+    labels, opts, register_counter, register_histogram_vec, Counter, Encoder, HistogramVec,
+    TextEncoder,
+};
 use {
     async_trait::async_trait,
     serde_derive::Deserialize,
     solana_sdk::{account::Account, pubkey::Pubkey},
     std::sync::Arc,
 };
+
+lazy_static! {
+    static ref ACCOUNT_WRITE: Counter = register_counter!(opts!(
+        "plugin_account_writes",
+        "Number of account writes done by the postgres geyser plugin",
+        labels! {"handler" => "all",}
+    ))
+    .unwrap();
+    static ref HTTP_REQ_HISTOGRAM: HistogramVec = register_histogram_vec!(
+        "example_http_request_duration_seconds",
+        "The HTTP request latencies in seconds.",
+        &["handler"]
+    )
+    .unwrap();
+}
 
 trait AnyhowWrap {
     type Value;
@@ -157,6 +177,15 @@ impl AccountTable for RawAccountTable {
         client: &postgres_query::Caching<tokio_postgres::Client>,
         account_write: &AccountWrite,
     ) -> anyhow::Result<()> {
+        let encoder = TextEncoder::new();
+
+        ACCOUNT_WRITE.inc();
+        let timer = HTTP_REQ_HISTOGRAM.with_label_values(&["all"]).start_timer();
+
+        let metric_families = prometheus::gather();
+        let mut buffer = vec![];
+        encoder.encode(&metric_families, &mut buffer).unwrap();
+
         let pubkey = encode_address(&account_write.pubkey);
         let owner = encode_address(&account_write.owner);
         let slot = account_write.slot as i64;
@@ -185,6 +214,9 @@ impl AccountTable for RawAccountTable {
             data,
         );
         let _ = query.execute(client).await?;
+
+        timer.observe_duration();
+
         Ok(())
     }
 }
