@@ -22,26 +22,12 @@ use {
     tokio::sync::{broadcast, mpsc},
     tonic::transport::Server,
 };
+
 use lazy_static::lazy_static;
 use prometheus::{
-    labels, opts, register_counter, register_histogram_vec, Counter, Encoder, HistogramVec,
-    TextEncoder,
+    labels, opts, proto::MetricFamily, register_counter, register_gauge, register_histogram_vec,
+    Counter, Encoder, HistogramVec, TextEncoder,
 };
-
-lazy_static! {
-    static ref ONLOAD: Counter = register_counter!(opts!(
-        "onload",
-        "The plugin has been loaded",
-        labels! {"handler" => "all",}
-    ))
-    .unwrap();
-    static ref ONLOAD_HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "onload_duration_secs",
-        "Geyser plugin loading latencies in seconds.",
-        &["handler"]
-    )
-    .unwrap();
-}
 
 pub mod geyser_proto {
     tonic::include_proto!("accountsdb");
@@ -166,22 +152,83 @@ impl PluginData {
     }
 }
 
+lazy_static! {
+    static ref PROM_METRICS: PrometheusMetrics = PrometheusMetrics::new();
+    
+    
+    static ref ONLOAD: Counter = register_counter!(opts!(
+        "grpc_plugin_loaded",
+        "Number of times the Geyser Plugin has been loaded",
+        labels! {"handler" => "all",}
+    ))
+    .unwrap();
+    static ref ONLOAD_HISTOGRAM: HistogramVec = register_histogram_vec!(
+        "example_http_request_duration_seconds",
+        "The HTTP request latencies in seconds.",
+        &["handler"]
+    )
+    .unwrap();
+    
+    
+    static ref ON_ACCOUNT_UPDATE: Counter = register_counter!(opts!(
+        "grpc_plugin_loaded",
+        "Number of times the Geyser Plugin has been loaded",
+        labels! {"handler" => "all",}
+    ))
+    .unwrap();
+    static ref ON_ACCOUNT_UPDATE_HISTOGRAM: HistogramVec = register_histogram_vec!(
+        "example_http_request_duration_seconds",
+        "The HTTP request latencies in seconds.",
+        &["handler"]
+    )
+    .unwrap();
+    
+    
+    static ref ON_SLOT_UPDATE: Counter = register_counter!(opts!(
+        "grpc_plugin_loaded",
+        "Number of times the Geyser Plugin has been loaded",
+        labels! {"handler" => "all",}
+    ))
+    .unwrap();
+    static ref ON_SLOT_UPDATE_HISTOGRAM: HistogramVec = register_histogram_vec!(
+        "example_http_request_duration_seconds",
+        "The HTTP request latencies in seconds.",
+        &["handler"]
+    )
+    .unwrap();
+}
+
+pub struct PrometheusMetrics {
+    gather: Vec<MetricFamily>,
+}
+
+impl PrometheusMetrics {
+    pub fn new() -> Self {
+        PrometheusMetrics {
+            gather: prometheus::gather(),
+        }
+    }
+}
+
+impl Default for PrometheusMetrics {
+    fn default() -> Self {
+        PrometheusMetrics::new()
+    }
+}
+
 impl GeyserPlugin for Plugin {
     fn name(&self) -> &'static str {
         "GeyserPluginGrpc"
     }
 
-    fn on_load(&mut self, config_file: &str) -> PluginResult<()> {        
-    let encoder = TextEncoder::new();
+    fn on_load(&mut self, config_file: &str) -> PluginResult<()> {
+        let encoder = TextEncoder::new();
 
-    ONLOAD.inc();
-    let timer = ONLOAD_HISTOGRAM.with_label_values(&["all"]).start_timer();
-        
-        
-    let metric_families = prometheus::gather();
-    let mut buffer = vec![];
-    encoder.encode(&metric_families, &mut buffer).unwrap();
-        
+        ONLOAD.inc();
+        let timer = ONLOAD_HISTOGRAM.with_label_values(&["all"]).start_timer();
+        let mut buffer = vec![];
+        encoder.encode(&PROM_METRICS.gather, &mut buffer).unwrap();
+
         solana_logger::setup_with_default("info");
         info!(
             "Loading plugin {:?} from config_file {:?}",
@@ -256,7 +303,8 @@ impl GeyserPlugin for Plugin {
             zstd_compression: config.zstd_compression,
         });
         
-        timer.observe_duration(); 
+        
+    timer.observe_duration();
 
         Ok(())
     }
@@ -283,6 +331,14 @@ impl GeyserPlugin for Plugin {
         slot: u64,
         is_startup: bool,
     ) -> PluginResult<()> {
+        let encoder = TextEncoder::new();
+
+        ON_ACCOUNT_UPDATE.inc();
+        let timer = ON_ACCOUNT_UPDATE_HISTOGRAM.with_label_values(&["all"]).start_timer();
+        let mut buffer = vec![];
+        encoder.encode(&PROM_METRICS.gather, &mut buffer).unwrap();
+        
+        
         let data = self.data.as_ref().expect("plugin must be initialized");
         match account {
             ReplicaAccountInfoVersions::V0_0_1(account) => {
@@ -351,6 +407,9 @@ impl GeyserPlugin for Plugin {
                 }));
             }
         }
+        
+        
+    timer.observe_duration();
         Ok(())
     }
 
@@ -360,6 +419,14 @@ impl GeyserPlugin for Plugin {
         parent: Option<u64>,
         status: SlotStatus,
     ) -> PluginResult<()> {
+        
+        let encoder = TextEncoder::new();
+
+        ON_SLOT_UPDATE.inc();
+        let timer = ON_SLOT_UPDATE_HISTOGRAM.with_label_values(&["all"]).start_timer();
+        let mut buffer = vec![];
+        encoder.encode(&PROM_METRICS.gather, &mut buffer).unwrap();
+        
         let data = self.data.as_ref().expect("plugin must be initialized");
         debug!("Updating slot {:?} at with status {:?}", slot, status);
 
@@ -373,6 +440,8 @@ impl GeyserPlugin for Plugin {
             parent,
             status: status as i32,
         }));
+        
+        timer.observe_duration();
 
         Ok(())
     }
@@ -429,6 +498,7 @@ pub unsafe extern "C" fn _create_plugin() -> *mut dyn GeyserPlugin {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::io::Write;
 
     use {super::*, serde_json};
 
