@@ -157,42 +157,42 @@ lazy_static! {
     
     
     static ref ONLOAD: Counter = register_counter!(opts!(
-        "grpc_plugin_loaded",
+        "onload",
         "Number of times the Geyser Plugin has been loaded",
         labels! {"handler" => "all",}
     ))
     .unwrap();
     static ref ONLOAD_HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "example_http_request_duration_seconds",
-        "The HTTP request latencies in seconds.",
+        "onload_duration",
+        "Geyser plugin launch latencies in seconds.",
         &["handler"]
     )
     .unwrap();
     
     
     static ref ON_ACCOUNT_UPDATE: Counter = register_counter!(opts!(
-        "grpc_plugin_loaded",
-        "Number of times the Geyser Plugin has been loaded",
+        "on_account_update",
+        "Number of times account updates have been received",
         labels! {"handler" => "all",}
     ))
     .unwrap();
     static ref ON_ACCOUNT_UPDATE_HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "example_http_request_duration_seconds",
-        "The HTTP request latencies in seconds.",
+        "on_account_update_duration",
+        "Measure the latency of `account_update`",
         &["handler"]
     )
     .unwrap();
     
     
     static ref ON_SLOT_UPDATE: Counter = register_counter!(opts!(
-        "grpc_plugin_loaded",
-        "Number of times the Geyser Plugin has been loaded",
+        "on_slot_update",
+        "Number of times the slot updates have been received",
         labels! {"handler" => "all",}
     ))
     .unwrap();
     static ref ON_SLOT_UPDATE_HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "example_http_request_duration_seconds",
-        "The HTTP request latencies in seconds.",
+        "on_slot_update_seconds",
+        "Latency from slot updates",
         &["handler"]
     )
     .unwrap();
