@@ -2,7 +2,6 @@ use crate::compression::zstd_compress;
 
 use {
     crate::accounts_selector::AccountsSelector,
-    crate::compression,
     bs58,
     geyser_proto::{
         slot_update::Status as SlotUpdateStatus, update::UpdateOneof, AccountWrite, Ping,
@@ -23,6 +22,26 @@ use {
     tokio::sync::{broadcast, mpsc},
     tonic::transport::Server,
 };
+use lazy_static::lazy_static;
+use prometheus::{
+    labels, opts, register_counter, register_histogram_vec, Counter, Encoder, HistogramVec,
+    TextEncoder,
+};
+
+lazy_static! {
+    static ref ONLOAD: Counter = register_counter!(opts!(
+        "onload",
+        "The plugin has been loaded",
+        labels! {"handler" => "all",}
+    ))
+    .unwrap();
+    static ref ONLOAD_HISTOGRAM: HistogramVec = register_histogram_vec!(
+        "onload_duration_secs",
+        "Geyser plugin loading latencies in seconds.",
+        &["handler"]
+    )
+    .unwrap();
+}
 
 pub mod geyser_proto {
     tonic::include_proto!("accountsdb");
@@ -152,7 +171,17 @@ impl GeyserPlugin for Plugin {
         "GeyserPluginGrpc"
     }
 
-    fn on_load(&mut self, config_file: &str) -> PluginResult<()> {
+    fn on_load(&mut self, config_file: &str) -> PluginResult<()> {        
+    let encoder = TextEncoder::new();
+
+    ONLOAD.inc();
+    let timer = ONLOAD_HISTOGRAM.with_label_values(&["all"]).start_timer();
+        
+        
+    let metric_families = prometheus::gather();
+    let mut buffer = vec![];
+    encoder.encode(&metric_families, &mut buffer).unwrap();
+        
         solana_logger::setup_with_default("info");
         info!(
             "Loading plugin {:?} from config_file {:?}",
@@ -226,6 +255,8 @@ impl GeyserPlugin for Plugin {
             active_accounts: RwLock::new(HashSet::new()),
             zstd_compression: config.zstd_compression,
         });
+        
+        timer.observe_duration(); 
 
         Ok(())
     }
@@ -398,7 +429,6 @@ pub unsafe extern "C" fn _create_plugin() -> *mut dyn GeyserPlugin {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::io::Write;
 
     use {super::*, serde_json};
 
