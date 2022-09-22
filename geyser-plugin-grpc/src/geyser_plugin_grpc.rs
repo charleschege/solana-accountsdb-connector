@@ -26,7 +26,7 @@ use {
 use lazy_static::lazy_static;
 use prometheus::{
     labels, opts, proto::MetricFamily, register_counter, register_gauge, register_histogram_vec,
-    Counter, Encoder, HistogramVec, TextEncoder,
+    Counter, Encoder, HistogramVec, TextEncoder, Registry
 };
 
 pub mod geyser_proto {
@@ -153,8 +153,7 @@ impl PluginData {
 }
 
 lazy_static! {
-    static ref PROM_METRICS: PrometheusMetrics = PrometheusMetrics::new();
-    
+    pub static ref REGISTRY: Registry = Registry::new();    
     
     static ref ONLOAD: Counter = register_counter!(opts!(
         "onload",
@@ -198,22 +197,30 @@ lazy_static! {
     .unwrap();
 }
 
-pub struct PrometheusMetrics {
-    gather: Vec<MetricFamily>,
-}
-
-impl PrometheusMetrics {
-    pub fn new() -> Self {
-        PrometheusMetrics {
-            gather: prometheus::gather(),
-        }
-    }
-}
-
-impl Default for PrometheusMetrics {
-    fn default() -> Self {
-        PrometheusMetrics::new()
-    }
+fn register_custom_metrics() {
+    REGISTRY
+        .register(Box::new(ONLOAD.clone()))
+        .expect("collector can be registered");
+        
+    REGISTRY
+        .register(Box::new(ONLOAD_HISTOGRAM.clone()))
+        .expect("collector can be registered");
+        
+    REGISTRY
+        .register(Box::new(ON_ACCOUNT_UPDATE.clone()))
+        .expect("collector can be registered");
+        
+    REGISTRY
+        .register(Box::new(ON_ACCOUNT_UPDATE_HISTOGRAM.clone()))
+        .expect("collector can be registered");
+        
+    REGISTRY
+        .register(Box::new(ON_SLOT_UPDATE.clone()))
+        .expect("collector can be registered");
+        
+    REGISTRY
+        .register(Box::new(ON_SLOT_UPDATE_HISTOGRAM.clone()))
+        .expect("collector can be registered");
 }
 
 impl GeyserPlugin for Plugin {
@@ -222,12 +229,14 @@ impl GeyserPlugin for Plugin {
     }
 
     fn on_load(&mut self, config_file: &str) -> PluginResult<()> {
+        register_custom_metrics();
+        
         let encoder = TextEncoder::new();
 
         ONLOAD.inc();
         let timer = ONLOAD_HISTOGRAM.with_label_values(&["all"]).start_timer();
         let mut buffer = vec![];
-        encoder.encode(&PROM_METRICS.gather, &mut buffer).unwrap();
+        encoder.encode(&REGISTRY.gather(), &mut buffer).unwrap();
 
         solana_logger::setup_with_default("info");
         info!(
@@ -336,7 +345,7 @@ impl GeyserPlugin for Plugin {
         ON_ACCOUNT_UPDATE.inc();
         let timer = ON_ACCOUNT_UPDATE_HISTOGRAM.with_label_values(&["all"]).start_timer();
         let mut buffer = vec![];
-        encoder.encode(&PROM_METRICS.gather, &mut buffer).unwrap();
+        encoder.encode(&REGISTRY.gather(), &mut buffer).unwrap();
         
         
         let data = self.data.as_ref().expect("plugin must be initialized");
@@ -425,7 +434,7 @@ impl GeyserPlugin for Plugin {
         ON_SLOT_UPDATE.inc();
         let timer = ON_SLOT_UPDATE_HISTOGRAM.with_label_values(&["all"]).start_timer();
         let mut buffer = vec![];
-        encoder.encode(&PROM_METRICS.gather, &mut buffer).unwrap();
+        encoder.encode(&REGISTRY.gather(), &mut buffer).unwrap();
         
         let data = self.data.as_ref().expect("plugin must be initialized");
         debug!("Updating slot {:?} at with status {:?}", slot, status);
